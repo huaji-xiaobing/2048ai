@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="2048 played by an n-tuple temporal-difference agent, running fully in the browser.">
+    <title>2048 · n-tuple AI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <main class="app">
+        <header class="topbar">
+            <div class="title">
+                <h1>2048</h1>
+                <p class="sub">n-tuple TD agent · <span id="modelInfo">loading…</span></p>
+            </div>
+            <div class="scores">
+                <div class="score"><span>SCORE</span><strong id="score">0</strong></div>
+                <div class="score"><span>BEST</span><strong id="best">0</strong></div>
+            </div>
+        </header>
+
+        <div class="controls">
+            <button id="btnAuto" class="primary" disabled>AI 自动</button>
+            <button id="btnStep" disabled>走一步</button>
+            <button id="btnReset">重开</button>
+            <label class="speed">
+                速度
+                <input id="speed" type="range" min="0" max="100" value="55">
+            </label>
+        </div>
+
+        <div class="board-wrap">
+            <div id="board" class="board"></div>
+            <div id="overlay" class="overlay hidden">
+                <p id="overlayText">无法移动</p>
+                <button id="btnRetry">再来一局</button>
+            </div>
+        </div>
+
+        <footer class="status">
+            <span id="status">正在加载模型…</span>
+            <span id="perf"></span>
+        </footer>
+
+        <p class="hint">
+            方向键 / 滑动可手动操作。AI 打分的是 afterstate（合并后、生成新块前的棋盘），
+            每步只做一次前向，没有搜索。
+        </p>
+    </main>
+
+    <script type="module" src="app.js"></script>
+</body>
+
+</html>

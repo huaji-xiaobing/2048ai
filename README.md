@@ -339,6 +339,41 @@ python -m ntuple2048 distill --reuse --resume checkpoints/longrun_60min/model.np
 
 也就是说，用 17 分钟的专家数据换掉了约一半的 TD 训练量，还高出 15%。
 
+## 浏览器演示（`docs/`）
+
+`docs/` 是一个纯静态页面，把训练好的 n-tuple 表直接跑在浏览器里——没有后端，也没有搜索：
+
+* 移动/合并：65536 项行查找表，和训练端同一套逻辑；
+* 决策：对四个 afterstate 各做一次前向取最大，每步约 **0.03 ms**；
+* 模型：`base=12` 的 12×6-tuple + 8×4-tuple，int8 每表独立 scale 量化，gzip 后 **6.2 MB**。
+
+### 为什么单独训一个 base=12
+
+训练用的 `base=15` 表有 547 MB，不可能塞进网页。`base=12` 把 6-tuple 表从
+`15^6` 降到 `12^6`（136.7M → 35.8M 项），代价是编码时把大于 2048 的块裁剪到 2048。
+这只影响 4096 以上的局面（仍能玩出来，只是那部分信息被截断）。
+
+### 实测（在 Node 里直接跑 `docs/ai.js`，每档 20 局）
+
+| 量化 | 文件体积 | 平均分 | 中位数 | 最大方块 |
+|------|----------|--------|--------|----------|
+| int16 | 30.5 MB | 29615 | 32296 | 4096 |
+| **int8** | **6.2 MB** | 31530 | 32212 | 4096 |
+
+int8 的量化噪声（每表 scale ≈ 1.0）远小于相邻动作的价值差，所以 argmax 基本不变。
+
+### 生成与本地预览
+
+```bash
+python -m ntuple2048 train --workers 8 --boards 128 --base 12 \
+    --steps 6000000 --epsilon-decay-steps 2500000 --save checkpoints/web_model.npz
+python scripts/export_web_model.py --model checkpoints/web_model.npz \
+    --out docs/model.bin.gz --bits 8
+python -m http.server -d docs 8000   # 打开 http://localhost:8000
+```
+
+GitHub Pages：Settings → Pages → Source 选 `Deploy from a branch`，分支 `main`、目录 `/docs`。
+
 ## 实测
 
 ### 60 分钟限时训练（`scripts/long_train.py`）
