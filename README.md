@@ -5,6 +5,9 @@
 默认特征集为 **12 个矩形 6-tuple + 8 个条形 4-tuple**，学习目标是 **afterstate 的价值**
 （移动/合并完成、尚未生成新数字时的棋盘），更新规则为类 SARSA 的 on-policy TD(0)。
 
+> **▶ 在线演示：[huaji-xiaobing.github.io/2048ai](https://huaji-xiaobing.github.io/2048ai/)**
+> 纯静态页面，价值表在浏览器里直接推理，没有后端、没有搜索。
+
 ## 安装
 
 ```bash
@@ -66,7 +69,12 @@ src/ntuple2048/
 └── cli.py         命令行入口
 scripts/
 ├── long_train.py           限时训练 + 定时评估驱动
-└── distill_from_teacher.py 生成专家轨迹并蒸馏
+├── distill_from_teacher.py 生成专家轨迹并蒸馏
+└── export_web_model.py     导出 int8 量化 + gzip 的浏览器模型
+docs/             静态演示页（GitHub Pages 从 main/`docs` 发布）
+├── index.html / style.css / app.js   2048 UI 与 AI 自动循环
+├── ai.js         浏览器端推理：LUT + n-tuple 编码 + 查表
+└── model.bin.gz  6.2 MB，base=12 量化模型
 2048-web/         上游网页版原样拷贝（含 ai_core.wasm 与 teacher_server.mjs）
 tests/            无 GUI 的单元测试（42 个）
 ```
@@ -340,6 +348,8 @@ python -m ntuple2048 distill --reuse --resume checkpoints/longrun_60min/model.np
 也就是说，用 17 分钟的专家数据换掉了约一半的 TD 训练量，还高出 15%。
 
 ## 浏览器演示（`docs/`）
+
+**线上地址：<https://huaji-xiaobing.github.io/2048ai/>**（GitHub Pages，`main` 分支 `/docs` 目录）
 
 `docs/` 是一个纯静态页面，把训练好的 n-tuple 表直接跑在浏览器里——没有后端，也没有搜索：
 
