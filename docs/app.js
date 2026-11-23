@@ -13,6 +13,7 @@ const btnStep = document.getElementById('btnStep');
 const btnReset = document.getElementById('btnReset');
 const btnRetry = document.getElementById('btnRetry');
 const speedEl = document.getElementById('speed');
+const deepEl = document.getElementById('deep');
 
 const KEY_TO_DIR = {
     ArrowLeft: 0,
@@ -119,6 +120,10 @@ function step(dir) {
     return true;
 }
 
+function chooseMove() {
+    return deepEl.checked ? ai.bestMoveDeep(cells, 2) : ai.bestMove(cells);
+}
+
 function delayMs() {
     // slider 0..100 -> 240ms..8ms per move
     return Math.round(240 - (Number(speedEl.value) / 100) * 232);
@@ -127,7 +132,7 @@ function delayMs() {
 function aiTick() {
     if (!running || !ai) return;
     const started = performance.now();
-    const dir = ai.bestMove(cells);
+    const dir = chooseMove();
     thinkMs += performance.now() - started;
     thinkCount += 1;
     updatePerf();
@@ -155,7 +160,7 @@ btnAuto.addEventListener('click', () => {
 });
 btnStep.addEventListener('click', () => {
     if (!ai || running) return;
-    const dir = ai.bestMove(cells);
+    const dir = chooseMove();
     if (dir >= 0) step(dir);
 });
 btnReset.addEventListener('click', reset);

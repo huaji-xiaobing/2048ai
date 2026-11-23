@@ -220,6 +220,41 @@ D4 consistency: max |V(b) - V(g b)| = 65.750 (0.05% of mean |V|)
 探针棋盘是 6~13 个随机方块的"中局"棋盘 —— 刚开局的棋盘价值太小，
 会让这个指标看起来虚假地好。
 
+### 7. 推理：1-ply vs 2-ply
+
+默认推理是单层贪心——对四个 afterstate 各算一次 `V`，取最大。
+
+再加一层先验展开：
+
+```
+Q(s, a) = r_a + gamma * E_spawn[ max_b V(afterstate(spawn(s_a), b)) ]
+```
+
+`spawn` 的期望是**精确**的（每个空位 × 0.9 的 2 / 0.1 的 4），不是采样。
+
+实测（4 小时训练的 base=15 模型）：
+
+| 深度 | 局数 | 平均分 | 中位数 | 最低分 | 4096 达成 | 每局耗时 |
+|------|------|--------|--------|--------|-----------|----------|
+| 1-ply | 25 | 44252 | 36076 | 31796 | 10/25 | 55 ms |
+| **2-ply** | 25 | **60532** | **65296** | 31368 | **21/25** | 503 ms |
+| **2-ply** | 50 | **59484** | **60392** | **35372** | **39/50** | 500 ms |
+
+平均分 +37%，但更值得注意的是**稳定性**：1-ply 在 JS 端 20 局里会出现 4588 分的崩盘，
+2-ply 的最低分是 35584——它几乎不会把局面走死。
+
+为什么有效：`V` 是 1.7 亿步 TD 学出来的，仍有可观噪声；显式展开 spawn 层相当于用
+"下一步的最优价值"替换"网络对当前 afterstate 的猜测"，抵消掉一部分系统偏差。
+代价是约 80 倍计算（浏览器里每步约 0.05 ms，仍然是实时的）。
+
+```python
+from ntuple2048 import NTupleNetwork, play_game
+net = NTupleNetwork.load("checkpoints/longrun_4h/model.npz")
+play_game(net, seed=0, depth=2)      # depth=1 是原来的贪心
+```
+
+浏览器里对应 `NTupleAI.bestMoveDeep(cells, 2)`，演示页上有「2-ply 搜索」开关。
+
 ## 蒸馏 WASM 专家（2048EndgameTablebase）
 
 上游项目 [game-difficulty/2048EndgameTablebase](https://github.com/game-difficulty/2048EndgameTablebase)

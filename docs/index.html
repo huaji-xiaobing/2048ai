@@ -26,6 +26,10 @@
             <button id="btnAuto" class="primary" disabled>AI 自动</button>
             <button id="btnStep" disabled>走一步</button>
             <button id="btnReset">重开</button>
+            <label class="toggle">
+                <input id="deep" type="checkbox" checked>
+                2-ply 搜索
+            </label>
             <label class="speed">
                 速度
                 <input id="speed" type="range" min="0" max="100" value="55">
@@ -46,8 +50,9 @@
         </footer>
 
         <p class="hint">
-            方向键 / 滑动可手动操作。AI 打分的是 afterstate（合并后、生成新块前的棋盘），
-            每步只做一次前向，没有搜索。
+            方向键 / 滑动可手动操作。价值表打分的是 afterstate（合并后、生成新块前的棋盘）。
+            勾选 <b>2-ply 搜索</b> 时会把“随机生成新块”这一层按 0.9/0.1 精确展开再取最优；
+            取消勾选则退化为单层贪心（约 80 倍快，但明显更弱）。
         </p>
     </main>
 

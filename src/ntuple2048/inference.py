@@ -17,7 +17,7 @@ from typing import Iterable
 import numpy as np
 
 from .board import DIRECTIONS, DIRECTION_NAMES, Board
-from .env import batch_move_all, batch_spawn, new_boards
+from .env import NUM_DIRECTIONS, batch_move_all, batch_spawn, new_boards
 from .network import NTupleNetwork
 from .symmetry import NUM_SYMMETRIES, transform_boards
 
@@ -55,6 +55,90 @@ def best_action(
     return directions[best], float(values[best])
 
 
+NEG_BIG = np.float32(-1e30)
+
+
+def _afterstate_values(
+    network: NTupleNetwork, boards: np.ndarray, d4_average: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(M, 4)`` afterstate values (illegal moves set to ``-1e30``) and validity."""
+    after, _, _, valid = batch_move_all(boards)
+    values = symmetry_averaged_values(network, after.reshape(-1, 16), d4_average)
+    values = values.reshape(boards.shape[0], NUM_DIRECTIONS)
+    values = np.where(valid, values, NEG_BIG)
+    return values, valid
+
+
+def best_action_deep(
+    network: NTupleNetwork,
+    board: Board,
+    depth: int = 2,
+    gamma: float = 0.999,
+    d4_average: bool = False,
+) -> tuple[int | None, float]:
+    """Expectimax lookahead on top of the value table.
+
+    ``depth=1`` is the plain greedy rule used everywhere else: pick the move
+    whose afterstate the network likes best.
+
+    ``depth=2`` expands one spawn layer explicitly::
+
+        Q(s, a) = r_a + gamma * E_spawn[ max_b V(afterstate(spawn(s_a), b)) ]
+
+    The spawn expectation is exact (0.9/0.1 over every empty cell), so this
+    trades ~80x compute for replacing the network's guess of ``V(s_a)`` with a
+    one-step bootstrap.  Only useful if ``V`` is biased enough that the
+    correction pays for the extra variance.
+    """
+    actions: list[tuple[int, tuple[int, ...], int]] = []
+    for direction in DIRECTIONS:
+        moved, _, gain = board.move(direction)
+        if moved.cells != board.cells:
+            actions.append((direction, moved.cells, gain))
+    if not actions:
+        return None, 0.0
+
+    if depth <= 1:
+        values = symmetry_averaged_values(
+            network, np.array([a[1] for a in actions], dtype=np.uint8), d4_average
+        )
+        best = int(np.argmax(values))
+        return actions[best][0], float(values[best])
+
+    spawned: list[list[int]] = []
+    owner: list[int] = []
+    weight: list[float] = []
+    for index, (_, cells, _) in enumerate(actions):
+        empties = [p for p in range(16) if cells[p] == 0]
+        if not empties:
+            continue
+        scale = 1.0 / len(empties)
+        for position in empties:
+            for tile, probability in ((1, 0.9), (2, 0.1)):
+                row = list(cells)
+                row[position] = tile
+                spawned.append(row)
+                owner.append(index)
+                weight.append(probability * scale)
+
+    if not spawned:
+        values = symmetry_averaged_values(
+            network, np.array([a[1] for a in actions], dtype=np.uint8), d4_average
+        )
+        best = int(np.argmax(values))
+        return actions[best][0], float(values[best])
+
+    values, valid = _afterstate_values(network, np.array(spawned, dtype=np.uint8), d4_average)
+    next_best = np.where(valid, values, np.float32(0.0)).max(axis=1)
+
+    continuation = np.zeros(len(actions), dtype=np.float64)
+    np.add.at(continuation, np.array(owner, dtype=np.intp), np.array(weight) * next_best)
+    q = np.array([a[2] for a in actions], dtype=np.float64) + gamma * continuation
+
+    best = int(np.argmax(q))
+    return actions[best][0], float(q[best])
+
+
 def action_values(
     network: NTupleNetwork, board: Board, d4_average: bool = False
 ) -> dict[str, float]:
@@ -89,14 +173,16 @@ def play_game(
     d4_average: bool = False,
     verbose: bool = False,
     max_steps: int = 1_000_000,
+    depth: int = 1,
+    gamma: float = 0.999,
 ) -> EpisodeResult:
-    """Play one full game greedily."""
+    """Play one full game with ``depth``-ply expectimax lookahead."""
     rng = np.random.default_rng(seed)
     board = Board.random_start(rng)
     score = 0
     steps = 0
     while steps < max_steps:
-        direction, _ = best_action(network, board, d4_average)
+        direction, _ = best_action_deep(network, board, depth=depth, gamma=gamma, d4_average=d4_average)
         if direction is None:
             break
         board, _, gain_real = board.move(direction)

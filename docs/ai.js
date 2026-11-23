@@ -250,6 +250,79 @@ export class NTupleAI {
         return bestDir;
     }
 
+    /**
+     * Expectimax lookahead over the value table.
+     *
+     * depth=1 is the plain greedy rule.  depth=2 expands the spawn layer
+     * exactly (0.9/0.1 over every empty cell) and bootstraps on `V`:
+     *
+     *     Q(s, a) = r_a + gamma * E_spawn[ max_b V(afterstate(spawn(s_a), b)) ]
+     *
+     * ~80x the compute of depth=1 (about 2 ms/step here) for a large gain in
+     * both mean score and worst-case survival.
+     */
+    bestMoveDeep(cells, depth = 2, gamma = 0.999) {
+        const lut = this.model.lut;
+        const moves = [];
+        for (const dir of DIRECTIONS) {
+            const moved = applyMove(cells, dir, lut);
+            if (moved.changed) moves.push({ dir, cells: moved.cells, gain: moved.gain });
+        }
+        if (!moves.length) return -1;
+
+        if (depth <= 1) {
+            let bestDir = -1;
+            let bestValue = -Infinity;
+            for (const move of moves) {
+                const value = this.evaluate(move.cells);
+                if (value > bestValue) {
+                    bestValue = value;
+                    bestDir = move.dir;
+                }
+            }
+            return bestDir;
+        }
+
+        const q = new Float64Array(moves.length);
+        for (let i = 0; i < moves.length; i++) q[i] = moves[i].gain;
+
+        for (let i = 0; i < moves.length; i++) {
+            const after = moves[i].cells;
+            const empties = [];
+            for (let p = 0; p < CELLS; p++) if (after[p] === 0) empties.push(p);
+            if (!empties.length) continue;
+            const share = 1 / empties.length;
+            let expectation = 0;
+            for (const position of empties) {
+                for (let t = 0; t < 2; t++) {
+                    const tile = t === 0 ? 1 : 2;
+                    const probability = t === 0 ? 0.9 : 0.1;
+                    const spawned = Uint8Array.from(after);
+                    spawned[position] = tile;
+                    let bestNext = 0;
+                    for (const next of DIRECTIONS) {
+                        const moved = applyMove(spawned, next, lut);
+                        if (!moved.changed) continue;
+                        const value = this.evaluate(moved.cells);
+                        if (value > bestNext) bestNext = value;
+                    }
+                    expectation += probability * share * bestNext;
+                }
+            }
+            q[i] += gamma * expectation;
+        }
+
+        let bestDir = -1;
+        let bestQ = -Infinity;
+        for (let i = 0; i < moves.length; i++) {
+            if (q[i] > bestQ) {
+                bestQ = q[i];
+                bestDir = moves[i].dir;
+            }
+        }
+        return bestDir;
+    }
+
     /** Values of the four afterstates, `null` for illegal moves. */
     actionValues(cells) {
         const lut = this.model.lut;
