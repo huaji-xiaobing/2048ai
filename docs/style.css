@@ -198,11 +198,11 @@ button.primary.running {
     position: absolute;
     top: 0;
     left: 0;
-    width: calc((100% - 3 * var(--gap)) / 4);
-    height: calc((100% - 3 * var(--gap)) / 4);
+    width: var(--cell, 22%);
+    height: var(--cell, 22%);
     transform: translate(
-        calc(var(--col) * (100% + var(--gap))),
-        calc(var(--row) * (100% + var(--gap)))
+        calc(var(--ox, 0px) + var(--col, 0) * (var(--cell, 22%) + var(--tile-gap, 0px))),
+        calc(var(--oy, 0px) + var(--row, 0) * (var(--cell, 22%) + var(--tile-gap, 0px)))
     );
     transition: transform var(--slide) ease-in-out;
     will-change: transform;

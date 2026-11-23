@@ -46,6 +46,37 @@ for (let i = 0; i < 16; i++) {
     gridBg.appendChild(cell);
 }
 
+// Tile geometry is measured from the background grid instead of being derived
+// independently, otherwise sub-pixel rounding of `clamp()` inside `calc()`
+// makes the two layers drift apart (the error accumulates per column/row).
+const geo = { cell: 0, gap: 0, ox: 0, oy: 0 };
+
+function measure() {
+    const cells = gridBg.children;
+    if (cells.length < 2) return;
+    const first = cells[0].getBoundingClientRect();
+    const second = cells[1].getBoundingClientRect();
+    const layer = tileLayer.getBoundingClientRect();
+    if (first.width < 1) return;
+    geo.cell = first.width;
+    geo.gap = Math.max(0, second.left - first.right);
+    geo.ox = first.left - layer.left;
+    geo.oy = first.top - layer.top;
+}
+
+function applyLayout() {
+    if (geo.cell < 1) return;
+    tileLayer.style.setProperty('--cell', `${geo.cell}px`);
+    tileLayer.style.setProperty('--tile-gap', `${geo.gap}px`);
+    tileLayer.style.setProperty('--ox', `${geo.ox}px`);
+    tileLayer.style.setProperty('--oy', `${geo.oy}px`);
+}
+
+function relayout() {
+    measure();
+    applyLayout();
+}
+
 // ------------------------------------------------------------------ tiles
 
 function makeTile(value, row, col, extra = {}) {
@@ -305,6 +336,7 @@ boardEl.addEventListener(
 // ------------------------------------------------------------------- boot
 
 async function boot() {
+    relayout();
     reset();
     try {
         const started = performance.now();
@@ -314,6 +346,7 @@ async function boot() {
         statusEl.textContent = `模型已加载（${seconds.toFixed(1)}s）`;
         btnAuto.disabled = false;
         btnStep.disabled = false;
+        relayout();
         reset();
     } catch (error) {
         console.error(error);
@@ -321,5 +354,7 @@ async function boot() {
         modelInfoEl.textContent = 'no model';
     }
 }
+
+window.addEventListener('resize', () => relayout());
 
 boot();
