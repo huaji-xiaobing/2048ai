@@ -74,7 +74,7 @@ scripts/
 docs/             静态演示页（GitHub Pages 从 main/`docs` 发布）
 ├── index.html / style.css / app.js   2048 UI 与 AI 自动循环
 ├── ai.js         浏览器端推理：LUT + n-tuple 编码 + 查表
-└── model.bin.gz  6.2 MB，base=12 量化模型
+└── model.bin.gz  13.3 MB，base=15 int8 量化模型（4 小时训练产物）
 2048-web/         上游网页版原样拷贝（含 ai_core.wasm 与 teacher_server.mjs）
 tests/            无 GUI 的单元测试（42 个）
 ```
@@ -355,32 +355,39 @@ python -m ntuple2048 distill --reuse --resume checkpoints/longrun_60min/model.np
 
 * 移动/合并：65536 项行查找表，和训练端同一套逻辑；
 * 决策：对四个 afterstate 各做一次前向取最大，每步约 **0.03 ms**；
-* 模型：`base=12` 的 12×6-tuple + 8×4-tuple，int8 每表独立 scale 量化，gzip 后 **6.2 MB**。
+* 模型：`base=15` 的 12×6-tuple + 8×4-tuple（4 小时 TD 训练的产物），
+  int8 每表独立 scale 量化，gzip 后 **13.3 MB**（解压后 137 MB）。
 
-### 为什么单独训一个 base=12
+### 547 MB 是怎么塞进网页的
 
-训练用的 `base=15` 表有 547 MB，不可能塞进网页。`base=12` 把 6-tuple 表从
-`15^6` 降到 `12^6`（136.7M → 35.8M 项），代价是编码时把大于 2048 的块裁剪到 2048。
-这只影响 4096 以上的局面（仍能玩出来，只是那部分信息被截断）。
+训练产物是 `base=15` 的 float32 表，547 MB；量化到 int8 后 137 MB；
+gzip 后 **13.3 MB**——因为表只有 23.5% 的项非零，压缩率接近 10×。
+浏览器用 `DecompressionStream('gzip')` 解压，然后直接在 `Int8Array` 上按索引查表，
+每张表带自己的 scale，反量化只是一次乘法。
 
-### 实测（在 Node 里直接跑 `docs/ai.js`，每档 20 局）
+如果嫌 13 MB 大，也可以用 `base=12` 训练一个轻量版（上限 2048）：int8 只有 6.2 MB，
+代价是 4096 以上的局面被截断。
 
-| 量化 | 文件体积 | 平均分 | 中位数 | 最大方块 |
-|------|----------|--------|--------|----------|
-| int16 | 30.5 MB | 29615 | 32296 | 4096 |
-| **int8** | **6.2 MB** | 31530 | 32212 | 4096 |
+### 实测（在 Node 里直接跑 `docs/ai.js`，各 20 局）
 
-int8 的量化噪声（每表 scale ≈ 1.0）远小于相邻动作的价值差，所以 argmax 基本不变。
+| 模型 | 量化 | 体积 | 平均分 | 中位数 | 4096 达成 |
+|------|------|------|--------|--------|-----------|
+| base=12（6M 步） | int8 | 6.2 MB | 31530 | 32212 | 9/20 |
+| **base=15（4 小时）** | **int8** | **13.3 MB** | **47813** | **55972** | **11/20** |
+
+int8 的量化噪声（每表 scale ≈ 1.0）远小于相邻动作的价值差，argmax 基本不变。
+base=15 这个模型在 Python 侧 200 局的平均分是 43700，JS 端 20 局样本较小、偏高属正常波动。
 
 ### 生成与本地预览
 
 ```bash
-python -m ntuple2048 train --workers 8 --boards 128 --base 12 \
-    --steps 6000000 --epsilon-decay-steps 2500000 --save checkpoints/web_model.npz
-python scripts/export_web_model.py --model checkpoints/web_model.npz \
+# 用 4 小时的产物（base=15）
+python scripts/export_web_model.py --model checkpoints/longrun_4h/model.npz \
     --out docs/model.bin.gz --bits 8
 python -m http.server -d docs 8000   # 打开 http://localhost:8000
 ```
+
+想要轻量版就换 `--model checkpoints/web_model.npz`（base=12，6.2 MB）。
 
 GitHub Pages：Settings → Pages → Source 选 `Deploy from a branch`，分支 `main`、目录 `/docs`。
 
