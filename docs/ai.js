@@ -79,6 +79,76 @@ export function applyMove(cells, dir, lut) {
     return { cells: out, gain, changed };
 }
 
+const VECTORS = [
+    { r: 0, c: -1 },
+    { r: 0, c: 1 },
+    { r: -1, c: 0 },
+    { r: 1, c: 0 },
+];
+
+/**
+ * Same rules as :func:`applyMove`, but returns enough detail to animate:
+ * which cell slides where, and which pairs merge.
+ *
+ *   moves  : [{from, to}]      slides
+ *   merges : [{a, b, to, value}]  a slides onto b, both disappear, `value` appears
+ *   cells  : resulting board (identical to applyMove's output)
+ */
+export function planMove(cells, dir) {
+    const vec = VECTORS[dir];
+    const rows = [0, 1, 2, 3];
+    const cols = [0, 1, 2, 3];
+    if (dir === RIGHT) cols.reverse();
+    if (dir === DOWN) rows.reverse();
+
+    const work = Array.from(cells);
+    const mergedAt = new Set();
+    const moves = [];
+    const merges = [];
+    let gain = 0;
+    let moved = false;
+
+    for (const r of rows) {
+        for (const c of cols) {
+            const from = r * 4 + c;
+            const value = work[from];
+            if (value === 0) continue;
+
+            let nr = r;
+            let nc = c;
+            for (;;) {
+                const tr = nr + vec.r;
+                const tc = nc + vec.c;
+                if (tr < 0 || tr > 3 || tc < 0 || tc > 3) break;
+                if (work[tr * 4 + tc] !== 0) break;
+                nr = tr;
+                nc = tc;
+            }
+
+            const tr = nr + vec.r;
+            const tc = nc + vec.c;
+            const inside = tr >= 0 && tr <= 3 && tc >= 0 && tc <= 3;
+            const target = inside ? tr * 4 + tc : -1;
+
+            if (target >= 0 && work[target] === value && !mergedAt.has(target)) {
+                work[from] = 0;
+                work[target] = value + 1;
+                mergedAt.add(target);
+                merges.push({ a: from, b: target, to: target, value: value + 1 });
+                gain += 1 << (value + 1);
+                moved = true;
+            } else if (nr !== r || nc !== c) {
+                work[from] = 0;
+                work[nr * 4 + nc] = value;
+                moves.push({ from, to: nr * 4 + nc });
+                moved = true;
+            }
+        }
+    }
+
+    return { moves, merges, gain, moved, cells: Uint8Array.from(work) };
+}
+
 export function emptyCells(cells) {
     const list = [];
     for (let i = 0; i < CELLS; i++) if (cells[i] === 0) list.push(i);

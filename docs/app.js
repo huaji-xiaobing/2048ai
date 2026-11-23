@@ -1,6 +1,8 @@
-import { NTupleAI, applyMove, isTerminal, newBoard, spawn } from './ai.js';
+import { NTupleAI, isTerminal, planMove } from './ai.js';
 
 const boardEl = document.getElementById('board');
+const gridBg = document.getElementById('gridBg');
+const tileLayer = document.getElementById('tileLayer');
 const scoreEl = document.getElementById('score');
 const bestEl = document.getElementById('best');
 const statusEl = document.getElementById('status');
@@ -26,8 +28,11 @@ const KEY_TO_DIR = {
     s: 3,
 };
 
+/** Tiles live 92 ms in the "dying" state while they slide into a merge. */
+const SLIDE_MS = 92;
+
 let ai = null;
-let cells = newBoard();
+let grid = new Array(16).fill(null);
 let score = 0;
 let best = Number(localStorage.getItem('ntuple2048-best') || 0);
 let running = false;
@@ -35,31 +40,126 @@ let timer = null;
 let thinkMs = 0;
 let thinkCount = 0;
 
-const cellEls = [];
 for (let i = 0; i < 16; i++) {
-    const el = document.createElement('div');
-    el.className = 'cell';
-    boardEl.appendChild(el);
-    cellEls.push(el);
+    const cell = document.createElement('div');
+    cell.className = 'grid-cell';
+    gridBg.appendChild(cell);
 }
 
-function render(popped = -1) {
-    for (let i = 0; i < 16; i++) {
-        const value = cells[i];
-        const el = cellEls[i];
-        const cls = value ? `cell v${value}` : 'cell';
-        if (el.className !== cls) el.className = cls;
-        const text = value ? String(2 ** value) : '';
-        if (el.textContent !== text) el.textContent = text;
-    }
-    if (popped >= 0) {
-        const el = cellEls[popped];
-        el.classList.remove('pop');
-        void el.offsetWidth;
-        el.classList.add('pop');
-        setTimeout(() => el.classList.remove('pop'), 200);
-    }
+// ------------------------------------------------------------------ tiles
+
+function makeTile(value, row, col, extra = {}) {
+    return { value, row, col, el: null, inner: null, ...extra };
 }
+
+function attach(tile) {
+    if (!tile.el) {
+        const el = document.createElement('div');
+        el.className = 'tile';
+        if (tile.isNew) el.classList.add('is-new');
+        if (tile.isMerged) el.classList.add('is-merged');
+        const inner = document.createElement('div');
+        inner.className = 'inner';
+        el.appendChild(inner);
+        el.addEventListener('animationend', () => {
+            el.classList.remove('is-new', 'is-merged');
+        });
+        tile.el = el;
+        tile.inner = inner;
+        tileLayer.appendChild(el);
+    }
+    tile.el.style.setProperty('--row', tile.row);
+    tile.el.style.setProperty('--col', tile.col);
+    tile.el.dataset.v = String(tile.value);
+    const text = String(2 ** tile.value);
+    if (tile.inner.textContent !== text) tile.inner.textContent = text;
+}
+
+function render(dying = []) {
+    for (const tile of grid) {
+        if (tile && !tile.pending) attach(tile);
+    }
+    for (const tile of dying) attach(tile);
+}
+
+function cellsFromGrid() {
+    const cells = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) if (grid[i]) cells[i] = grid[i].value;
+    return cells;
+}
+
+function spawnTile() {
+    const empty = [];
+    for (let i = 0; i < 16; i++) if (!grid[i]) empty.push(i);
+    if (!empty.length) return -1;
+    const position = empty[Math.floor(Math.random() * empty.length)];
+    const tile = makeTile(Math.random() < 0.9 ? 1 : 2, Math.floor(position / 4), position % 4, {
+        isNew: true,
+    });
+    grid[position] = tile;
+    render();
+    return position;
+}
+
+// ------------------------------------------------------------------- move
+
+function moveTiles(dir) {
+    const plan = planMove(cellsFromGrid(), dir);
+    if (!plan.moved) return null;
+
+    const dying = [];
+    const created = [];
+
+    for (const { from, to } of plan.moves) {
+        const tile = grid[from];
+        grid[from] = null;
+        grid[to] = tile;
+        tile.row = Math.floor(to / 4);
+        tile.col = to % 4;
+    }
+
+    for (const merge of plan.merges) {
+        const a = grid[merge.a];
+        const b = grid[merge.b];
+        grid[merge.a] = null;
+        grid[merge.b] = null;
+
+        if (a) {
+            a.row = Math.floor(merge.to / 4);
+            a.col = merge.to % 4;
+            dying.push(a);
+        }
+        if (b) dying.push(b);
+
+        const merged = makeTile(merge.value, Math.floor(merge.to / 4), merge.to % 4, {
+            pending: true,
+        });
+        grid[merge.to] = merged;
+        created.push(merged);
+    }
+
+    render(dying);
+
+    setTimeout(() => {
+        for (const tile of dying) {
+            if (tile.el) {
+                tile.el.remove();
+                tile.el = null;
+                tile.inner = null;
+            }
+        }
+        for (const tile of created) {
+            tile.pending = false;
+            tile.isMerged = true;
+        }
+        render();
+    }, SLIDE_MS);
+
+    score += plan.gain;
+    return plan.cells;
+}
+
+// -------------------------------------------------------------------- UI
 
 function updateScores() {
     scoreEl.textContent = String(score);
@@ -71,11 +171,9 @@ function updateScores() {
 }
 
 function updatePerf() {
-    if (!thinkCount) {
-        perfEl.textContent = '';
-        return;
-    }
-    perfEl.textContent = `${(thinkMs / thinkCount).toFixed(2)} ms/步 · ${thinkCount} 次决策`;
+    perfEl.textContent = thinkCount
+        ? `${(thinkMs / thinkCount).toFixed(2)} ms/步 · ${thinkCount} 次决策`
+        : '';
 }
 
 function stopAuto() {
@@ -95,25 +193,22 @@ function endGame(text) {
 function reset() {
     stopAuto();
     overlayEl.classList.add('hidden');
-    cells = newBoard();
+    tileLayer.innerHTML = '';
+    grid = new Array(16).fill(null);
     score = 0;
     thinkMs = 0;
     thinkCount = 0;
+    spawnTile();
+    spawnTile();
     updateScores();
     updatePerf();
-    render();
-    if (ai) statusEl.textContent = '就绪';
 }
 
 function step(dir) {
-    const result = applyMove(cells, dir, ai.lut);
-    if (!result.changed) return false;
-    cells = result.cells;
-    score += result.gain;
-    const popped = spawn(cells);
-    render(popped);
+    if (!moveTiles(dir)) return false;
+    spawnTile();
     updateScores();
-    if (isTerminal(cells, ai.lut)) {
+    if (isTerminal(cellsFromGrid(), ai.lut)) {
         endGame(`无法移动 · ${score} 分`);
         return false;
     }
@@ -121,6 +216,7 @@ function step(dir) {
 }
 
 function chooseMove() {
+    const cells = cellsFromGrid();
     return deepEl.checked ? ai.bestMoveDeep(cells, 2) : ai.bestMove(cells);
 }
 
@@ -158,11 +254,13 @@ btnAuto.addEventListener('click', () => {
     if (running) stopAuto();
     else startAuto();
 });
+
 btnStep.addEventListener('click', () => {
     if (!ai || running) return;
     const dir = chooseMove();
     if (dir >= 0) step(dir);
 });
+
 btnReset.addEventListener('click', reset);
 btnRetry.addEventListener('click', reset);
 
@@ -181,25 +279,33 @@ document.addEventListener('keydown', (event) => {
 });
 
 let touchStart = null;
-boardEl.addEventListener('touchstart', (event) => {
-    const touch = event.changedTouches[0];
-    touchStart = { x: touch.clientX, y: touch.clientY };
-}, { passive: true });
+boardEl.addEventListener(
+    'touchstart',
+    (event) => {
+        const touch = event.changedTouches[0];
+        touchStart = { x: touch.clientX, y: touch.clientY };
+    },
+    { passive: true },
+);
+boardEl.addEventListener(
+    'touchend',
+    (event) => {
+        if (!touchStart || !ai || running) return;
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - touchStart.x;
+        const dy = touch.clientY - touchStart.y;
+        touchStart = null;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+        const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 0) : (dy > 0 ? 3 : 2);
+        step(dir);
+    },
+    { passive: true },
+);
 
-boardEl.addEventListener('touchend', (event) => {
-    if (!touchStart || !ai || running) return;
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - touchStart.x;
-    const dy = touch.clientY - touchStart.y;
-    touchStart = null;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
-    const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 0) : (dy > 0 ? 3 : 2);
-    step(dir);
-}, { passive: true });
+// ------------------------------------------------------------------- boot
 
 async function boot() {
-    updateScores();
-    render();
+    reset();
     try {
         const started = performance.now();
         ai = await NTupleAI.load('model.bin.gz');

@@ -7,6 +7,8 @@
     --gap: clamp(6px, 1.6vmin, 12px);
     --size: min(88vw, 56vh, 460px);
     --radius: clamp(6px, 1.2vmin, 10px);
+    --slide: 92ms;
+    --pop: 140ms;
 }
 
 * {
@@ -157,6 +159,8 @@ button.primary.running {
     accent-color: #8f7a66;
 }
 
+/* ---------------------------------------------------------------- board */
+
 .board-wrap {
     position: relative;
 }
@@ -166,35 +170,85 @@ button.primary.running {
     background: var(--board);
     border-radius: calc(var(--radius) * 1.4);
     padding: var(--gap);
+    aspect-ratio: 1 / 1;
+    touch-action: none;
+    overflow: hidden;
+}
+
+.grid-bg {
+    position: absolute;
+    inset: var(--gap);
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     grid-template-rows: repeat(4, 1fr);
     gap: var(--gap);
-    aspect-ratio: 1 / 1;
-    touch-action: none;
 }
 
-.cell {
+.grid-cell {
     background: var(--empty);
+    border-radius: var(--radius);
+}
+
+.tile-layer {
+    position: absolute;
+    inset: var(--gap);
+}
+
+.tile {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: calc((100% - 3 * var(--gap)) / 4);
+    height: calc((100% - 3 * var(--gap)) / 4);
+    transform: translate(
+        calc(var(--col) * (100% + var(--gap))),
+        calc(var(--row) * (100% + var(--gap)))
+    );
+    transition: transform var(--slide) ease-in-out;
+    will-change: transform;
+}
+
+.tile .inner {
+    width: 100%;
+    height: 100%;
     border-radius: var(--radius);
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 800;
+    font-variant-numeric: tabular-nums;
     font-size: clamp(18px, 5.4vmin, 34px);
     color: var(--text);
-    font-variant-numeric: tabular-nums;
     user-select: none;
-    transition: background-color 0.08s linear, color 0.08s linear;
 }
 
-.cell.pop {
-    animation: pop 0.14s ease-out;
+.tile.is-new .inner {
+    animation: appear 130ms ease-out;
+}
+
+.tile.is-merged .inner {
+    animation: pop var(--pop) ease-out;
+}
+
+@keyframes appear {
+    from {
+        transform: scale(0);
+        opacity: 0.4;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
 }
 
 @keyframes pop {
     0% {
-        transform: scale(0.72);
+        transform: scale(0.82);
+    }
+
+    55% {
+        transform: scale(1.16);
     }
 
     100% {
@@ -202,81 +256,85 @@ button.primary.running {
     }
 }
 
-.cell.v1 {
+/* -------------------------------------------------------------- colours */
+
+.tile[data-v="1"] .inner {
     background: #eee4da;
 }
 
-.cell.v2 {
+.tile[data-v="2"] .inner {
     background: #ede0c8;
 }
 
-.cell.v3 {
+.tile[data-v="3"] .inner {
     background: #f2b179;
     color: var(--light);
 }
 
-.cell.v4 {
+.tile[data-v="4"] .inner {
     background: #f59563;
     color: var(--light);
 }
 
-.cell.v5 {
+.tile[data-v="5"] .inner {
     background: #f67c5f;
     color: var(--light);
 }
 
-.cell.v6 {
+.tile[data-v="6"] .inner {
     background: #f65e3b;
     color: var(--light);
 }
 
-.cell.v7 {
+.tile[data-v="7"] .inner {
     background: #edcf72;
     color: var(--light);
 }
 
-.cell.v8 {
+.tile[data-v="8"] .inner {
     background: #edcc61;
     color: var(--light);
 }
 
-.cell.v9 {
+.tile[data-v="9"] .inner {
     background: #edc850;
     color: var(--light);
 }
 
-.cell.v10 {
+.tile[data-v="10"] .inner {
     background: #edc53f;
     color: var(--light);
 }
 
-.cell.v11 {
+.tile[data-v="11"] .inner {
     background: #edc22e;
     color: var(--light);
 }
 
-.cell.v12,
-.cell.v13,
-.cell.v14,
-.cell.v15 {
+.tile[data-v="12"] .inner,
+.tile[data-v="13"] .inner,
+.tile[data-v="14"] .inner,
+.tile[data-v="15"] .inner {
     background: #3c3a32;
     color: var(--light);
 }
 
-.cell.v7,
-.cell.v8,
-.cell.v9,
-.cell.v10,
-.cell.v11 {
+.tile[data-v="7"] .inner,
+.tile[data-v="8"] .inner,
+.tile[data-v="9"] .inner,
+.tile[data-v="10"] .inner,
+.tile[data-v="11"] .inner {
     font-size: clamp(16px, 4.6vmin, 28px);
 }
 
-.cell.v12,
-.cell.v13,
-.cell.v14,
-.cell.v15 {
+.tile[data-v="12"] .inner,
+.tile[data-v="13"] .inner,
+.tile[data-v="14"] .inner,
+.tile[data-v="15"] .inner {
     font-size: clamp(14px, 4vmin, 24px);
 }
+
+/* ------------------------------------------------------------- overlay */
 
 .overlay {
     position: absolute;
@@ -289,6 +347,7 @@ button.primary.running {
     justify-content: center;
     gap: 12px;
     backdrop-filter: blur(2px);
+    z-index: 5;
 }
 
 .overlay.hidden {
