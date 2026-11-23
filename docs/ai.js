@@ -102,6 +102,11 @@ export function planMove(cells, dir) {
     if (dir === DOWN) rows.reverse();
 
     const work = Array.from(cells);
+    // owner[pos] = index of the *original* cell whose tile now sits at `pos`.
+    // Merges must be reported in terms of original indices, otherwise the
+    // caller cannot tell which tile the value actually belongs to once tiles
+    // have slid onto the merge target.
+    const owner = Array.from({ length: 16 }, (_, i) => i);
     const mergedAt = new Set();
     const moves = [];
     const merges = [];
@@ -134,13 +139,15 @@ export function planMove(cells, dir) {
                 work[from] = 0;
                 work[target] = value + 1;
                 mergedAt.add(target);
-                merges.push({ a: from, b: target, to: target, value: value + 1 });
+                merges.push({ a: from, b: owner[target], to: target, value: value + 1 });
+                owner[target] = from;
                 gain += 1 << (value + 1);
                 moved = true;
             } else if (nr !== r || nc !== c) {
                 work[from] = 0;
                 work[nr * 4 + nc] = value;
                 moves.push({ from, to: nr * 4 + nc });
+                owner[nr * 4 + nc] = owner[from];
                 moved = true;
             }
         }

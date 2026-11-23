@@ -111,6 +111,14 @@ function render(dying = []) {
         if (tile && !tile.pending) attach(tile);
     }
     for (const tile of dying) attach(tile);
+
+    // Safety net: drop any DOM node that no longer belongs to a live tile.
+    const live = new Set();
+    for (const tile of grid) if (tile && tile.el) live.add(tile.el);
+    for (const tile of dying) if (tile && tile.el) live.add(tile.el);
+    for (const node of Array.from(tileLayer.children)) {
+        if (!live.has(node)) node.remove();
+    }
 }
 
 function cellsFromGrid() {
@@ -138,37 +146,52 @@ function moveTiles(dir) {
     const plan = planMove(cellsFromGrid(), dir);
     if (!plan.moved) return null;
 
+    // `plan` indexes the *original* board, so all lookups must go through a
+    // snapshot.  Reading `grid` after applying the slides would pick up tiles
+    // that already moved in, leaving the real tiles orphaned forever.
+    const before = grid;
+    const next = before.slice();
     const dying = [];
     const created = [];
 
     for (const { from, to } of plan.moves) {
-        const tile = grid[from];
-        grid[from] = null;
-        grid[to] = tile;
+        const tile = before[from];
+        next[from] = null;
+        next[to] = tile;
         tile.row = Math.floor(to / 4);
         tile.col = to % 4;
     }
 
     for (const merge of plan.merges) {
-        const a = grid[merge.a];
-        const b = grid[merge.b];
-        grid[merge.a] = null;
-        grid[merge.b] = null;
+        const a = before[merge.a];
+        const b = before[merge.b];
+        const row = Math.floor(merge.to / 4);
+        const col = merge.to % 4;
 
         if (a) {
-            a.row = Math.floor(merge.to / 4);
-            a.col = merge.to % 4;
+            a.row = row;
+            a.col = col;
             dying.push(a);
         }
-        if (b) dying.push(b);
+        if (b) {
+            b.row = row;
+            b.col = col;
+            dying.push(b);
+        }
 
-        const merged = makeTile(merge.value, Math.floor(merge.to / 4), merge.to % 4, {
-            pending: true,
-        });
-        grid[merge.to] = merged;
+        // `merge.a` may already hold a tile that slid in from `plan.moves`
+        // (e.g. [1,1,2,0] LEFT: the 2 slides onto index 1 while index 1's 1
+        // merges away).  Only clear the slot when it still points at the
+        // original tile, otherwise the slid-in one becomes an orphan.
+        if (next[merge.a] === a) next[merge.a] = null;
+        if (next[merge.b] === b) next[merge.b] = null;
+
+        const merged = makeTile(merge.value, row, col, { pending: true });
+        next[merge.to] = merged;
         created.push(merged);
     }
 
+    grid = next;
     render(dying);
 
     setTimeout(() => {
@@ -354,6 +377,16 @@ async function boot() {
         modelInfoEl.textContent = 'no model';
     }
 }
+
+// Debug hook: lets the headless regression test compare the logical board with
+// what is actually in the DOM (catching orphaned tiles that never get removed).
+window.__ntuple2048 = {
+    state: () => ({
+        logical: grid.filter(Boolean).map((t) => ({ row: t.row, col: t.col, value: t.value })),
+        dom: tileLayer.childElementCount,
+        score,
+    }),
+};
 
 window.addEventListener('resize', () => relayout());
 
